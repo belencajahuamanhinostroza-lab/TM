@@ -138,34 +138,26 @@ if foto is not None:
             resultado["class_confidence"]
         )
 
-        # -----------------------------------
-        # RESULTADO
-        # -----------------------------------
+# ---------------------------------------
+# RESULTADO
+# ---------------------------------------
 
-        st.markdown(
-            f"""
-            <div class="resultado">
+nombre = resultado["class_name"]
 
-                <div class="nombre">
-                    {nombre}
-                </div>
+# Quitar "0 " de "0 Belen"
+partes = nombre.split(" ", 1)
 
-                <div class="probabilidad">
-                    Probabilidad: {confianza * 100:.2f}%
-                </div>
+if len(partes) == 2 and partes[0].isdigit():
+    nombre = partes[1]
 
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+confianza = float(resultado["class_confidence"])
 
-    except Exception as e:
+st.subheader("✨ Resultado")
 
-        st.error(
-            f"Error al analizar la imagen: {e}"
-        )
+st.success(
+    f"**{nombre}**"
+)
 
-    finally:
-
-        if os.path.exists(ruta_temporal):
-            os.remove(ruta_temporal)
+st.write(
+    f"Probabilidad: **{confianza * 100:.2f}%**"
+)
