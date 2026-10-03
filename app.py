@@ -1,13 +1,12 @@
 import os
-import platform
+import tempfile
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-import tensorflow as tf
+from PIL import Image
 
-from PIL import Image, ImageOps
-from tensorflow.keras.models import load_model
+from teachable_machine import TeachableMachine
 
 
 # ============================================================
@@ -17,386 +16,249 @@ from tensorflow.keras.models import load_model
 st.set_page_config(
     page_title="Belen AI",
     page_icon="🤖",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
 MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
-IMAGE_PATH = "OIG5.jpg"
-
-IMAGE_SIZE = (224, 224)
 
 
 # ============================================================
 # ESTILOS
 # ============================================================
 
-st.markdown(
-    """
-    <style>
+st.markdown("""
+<style>
 
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'DM Sans', sans-serif;
-    }
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
 
-    .stApp {
-        background:
-            radial-gradient(
-                circle at 10% 10%,
-                rgba(226, 214, 255, 0.65),
-                transparent 28%
-            ),
-            radial-gradient(
-                circle at 90% 20%,
-                rgba(242, 232, 255, 0.75),
-                transparent 30%
-            ),
-            linear-gradient(
-                135deg,
-                #faf8ff 0%,
-                #f4efff 50%,
-                #ffffff 100%
-            );
-    }
+.stApp {
+    background:
+        radial-gradient(
+            circle at 10% 10%,
+            rgba(220, 207, 255, 0.55),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at 90% 15%,
+            rgba(236, 226, 255, 0.65),
+            transparent 35%
+        ),
+        #f8f7fc;
+}
 
-    .block-container {
-        max-width: 1050px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
+/* =========================
+   TÍTULO
+   ========================= */
 
-    /* HEADER */
+.main-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 42px;
+    font-weight: 800;
+    color: #2c2440;
+    margin-bottom: 4px;
+}
 
-    .top-header {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        margin-bottom: 25px;
-    }
+.subtitle {
+    font-size: 17px;
+    color: #777087;
+    margin-bottom: 30px;
+}
 
-    .ai-icon {
-        width: 54px;
-        height: 54px;
-        border-radius: 18px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(
-            135deg,
-            #8b5cf6,
-            #a78bfa
-        );
-        box-shadow:
-            0 10px 30px rgba(124, 92, 246, 0.25);
-        font-size: 27px;
-    }
 
-    .title-area h1 {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 30px;
-        font-weight: 800;
-        color: #29233d;
-        margin: 0;
-        letter-spacing: -1px;
-    }
+/* =========================
+   TARJETAS
+   ========================= */
 
-    .title-area p {
-        color: #827a94;
-        margin: 3px 0 0 0;
-        font-size: 14px;
-    }
+.card {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(120, 100, 170, 0.10);
+    border-radius: 24px;
+    padding: 26px;
+    box-shadow: 0 12px 35px rgba(76, 61, 112, 0.08);
+    margin-bottom: 20px;
+}
 
-    /* CARDS */
 
-    .card {
-        background: rgba(255, 255, 255, 0.88);
-        border: 1px solid rgba(139, 92, 246, 0.10);
-        border-radius: 25px;
-        padding: 25px;
-        margin-bottom: 20px;
-        box-shadow:
-            0 12px 40px rgba(57, 38, 95, 0.07);
-        backdrop-filter: blur(10px);
-    }
+/* =========================
+   RESULTADO
+   ========================= */
 
-    .card-title {
-        color: #312847;
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 18px;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
+.result-card {
+    background: linear-gradient(
+        135deg,
+        #eee7ff,
+        #ffffff
+    );
 
-    .card-subtitle {
-        color: #8b8499;
-        font-size: 13px;
-        margin-bottom: 18px;
-    }
+    border: 1px solid #ddd1ff;
+    border-radius: 28px;
 
-    /* WELCOME */
+    padding: 35px 25px;
 
-    .welcome-card {
-        background: linear-gradient(
-            135deg,
-            rgba(255,255,255,0.96),
-            rgba(245,240,255,0.96)
-        );
-        border-radius: 28px;
-        padding: 30px;
-        margin-bottom: 22px;
-        border: 1px solid rgba(139, 92, 246, 0.12);
-        box-shadow:
-            0 15px 45px rgba(70, 45, 110, 0.08);
-    }
+    text-align: center;
 
-    .welcome-title {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 25px;
-        font-weight: 800;
-        color: #302640;
-        margin-bottom: 8px;
-    }
+    box-shadow:
+        0 15px 40px rgba(110, 82, 180, 0.12);
+}
 
-    .welcome-text {
-        color: #777087;
-        font-size: 14px;
-        line-height: 1.7;
-        max-width: 700px;
-    }
+.result-label {
+    color: #81769b;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
 
-    /* RESULT */
+.result-name {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #6244b2;
+    font-size: 40px;
+    font-weight: 800;
+    margin-top: 8px;
+}
 
-    .result-card {
-        text-align: center;
-        background: linear-gradient(
-            145deg,
-            #ffffff,
-            #f6f0ff
-        );
-        border-radius: 28px;
-        padding: 30px 20px;
-        border: 1px solid rgba(139, 92, 246, 0.12);
-        box-shadow:
-            0 15px 45px rgba(70, 45, 110, 0.09);
-    }
+.confidence {
+    color: #3e354f;
+    font-size: 20px;
+    font-weight: 600;
+    margin-top: 8px;
+}
 
-    .result-label {
-        color: #9189a0;
-        font-size: 13px;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        font-weight: 700;
-    }
 
-    .result-name {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 35px;
-        font-weight: 800;
-        color: #7047d7;
-        margin-top: 7px;
-    }
+/* =========================
+   SIDEBAR
+   ========================= */
 
-    .result-confidence {
-        color: #5e586a;
-        font-size: 16px;
-        margin-top: 5px;
-    }
+section[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #f0eaff 0%,
+        #f8f6ff 100%
+    );
 
-    /* CAMERA */
+    border-right: 1px solid #e2daf4;
+}
 
-    [data-testid="stCameraInput"] {
-        border-radius: 20px;
-        overflow: hidden;
-    }
+.sidebar-title {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    color: #4f3b78;
+}
 
-    [data-testid="stFileUploader"] {
-        border-radius: 20px;
-    }
+.sidebar-text {
+    color: #746b87;
+    font-size: 15px;
+    line-height: 1.6;
+}
 
-    /* BUTTON */
 
-    .stButton > button {
-        width: 100%;
-        border: none;
-        border-radius: 15px;
-        padding: 12px 20px;
-        background: linear-gradient(
-            135deg,
-            #7c4dff,
-            #9b76ff
-        );
-        color: white;
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 700;
-        font-size: 14px;
-        box-shadow:
-            0 8px 22px rgba(124, 77, 255, 0.22);
-        transition: all 0.2s ease;
-    }
+/* =========================
+   MÉTRICAS
+   ========================= */
 
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow:
-            0 12px 28px rgba(124, 77, 255, 0.30);
-    }
+.metric-card {
+    background: rgba(255, 255, 255, 0.90);
+    border-radius: 20px;
+    padding: 20px;
+    text-align: center;
 
-    /* SIDEBAR */
+    border: 1px solid #eee9f8;
 
-    section[data-testid="stSidebar"] {
-        background:
-            linear-gradient(
-                180deg,
-                #f8f5ff 0%,
-                #f1ebff 100%
-            );
-        border-right: 1px solid rgba(124, 77, 255, 0.08);
-    }
+    box-shadow:
+        0 8px 25px rgba(76, 61, 112, 0.05);
+}
 
-    section[data-testid="stSidebar"] h2 {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        color: #302640;
-    }
+.metric-number {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: #6545b7;
+}
 
-    .sidebar-card {
-        background: rgba(255,255,255,0.75);
-        border: 1px solid rgba(124,77,255,0.10);
-        border-radius: 20px;
-        padding: 18px;
-        margin-bottom: 15px;
-    }
+.metric-text {
+    color: #81788f;
+    font-size: 14px;
+}
 
-    .sidebar-title {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        font-weight: 700;
-        color: #403653;
-        margin-bottom: 8px;
-    }
 
-    .sidebar-text {
-        color: #777087;
-        font-size: 13px;
-        line-height: 1.6;
-    }
+/* =========================
+   CÁMARA
+   ========================= */
 
-    /* STATUS */
+[data-testid="stCameraInput"] {
+    border-radius: 22px;
+    overflow: hidden;
+}
 
-    .status {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        background: #f1edff;
-        color: #7352c7;
-        border-radius: 50px;
-        padding: 7px 13px;
-        font-size: 12px;
-        font-weight: 700;
-        margin-bottom: 15px;
-    }
 
-    .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #8b5cf6;
-        display: inline-block;
-    }
+/* =========================
+   FOOTER
+   ========================= */
 
-    /* FOOTER */
+.footer {
+    text-align: center;
+    color: #9991a9;
+    font-size: 13px;
+    padding: 35px 0 15px;
+}
 
-    .footer {
-        text-align: center;
-        color: #aaa3b3;
-        font-size: 12px;
-        padding-top: 15px;
-        padding-bottom: 10px;
-    }
-
-    /* METRICS */
-
-    div[data-testid="stMetric"] {
-        background: rgba(255,255,255,0.8);
-        border-radius: 18px;
-        padding: 15px;
-        border: 1px solid rgba(124,77,255,0.08);
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+</style>
+""", unsafe_allow_html=True)
 
 
 # ============================================================
-# CAPA COMPATIBLE CON TEACHABLE MACHINE
-# ============================================================
-
-class CompatibleDepthwiseConv2D(
-    tf.keras.layers.DepthwiseConv2D
-):
-    """
-    Permite cargar modelos antiguos de Teachable Machine
-    que guardan el parámetro 'groups' dentro de
-    DepthwiseConv2D.
-    """
-
-    @classmethod
-    def from_config(cls, config):
-
-        # Teachable Machine puede guardar:
-        #
-        # "groups": 1
-        #
-        # Keras moderno puede rechazar este argumento
-        # al reconstruir la capa.
-
-        config.pop("groups", None)
-
-        return super().from_config(config)
-
-
-# ============================================================
-# CARGAR MODELO
+# FUNCIONES
 # ============================================================
 
 @st.cache_resource
-def load_ai_model():
+def load_model():
+    """
+    Carga el modelo usando teachable-machine.
+
+    Esta librería maneja específicamente:
+    - DepthwiseConv2D con groups=1
+    - modelos Sequential anidados
+    - exports H5 antiguos de Teachable Machine
+    """
 
     if not os.path.exists(MODEL_PATH):
-
         raise FileNotFoundError(
-            f"No se encontró el archivo '{MODEL_PATH}'. "
-            f"Debe estar en la misma carpeta que app.py."
+            f"No se encontró '{MODEL_PATH}'"
         )
 
-    model = load_model(
-        MODEL_PATH,
-        compile=False,
-        custom_objects={
-            "DepthwiseConv2D":
-                CompatibleDepthwiseConv2D
-        }
+    if not os.path.exists(LABELS_PATH):
+        raise FileNotFoundError(
+            f"No se encontró '{LABELS_PATH}'"
+        )
+
+    model = TeachableMachine(
+        model_path=MODEL_PATH,
+        labels_file_path=LABELS_PATH,
+        model_type="h5"
     )
 
     return model
 
 
-# ============================================================
-# CARGAR ETIQUETAS
-# ============================================================
+def get_label():
+    """
+    Lee labels.txt.
 
-@st.cache_data
-def load_labels():
+    Convierte:
+        0 Belen
+
+    en:
+        Belen
+    """
 
     if not os.path.exists(LABELS_PATH):
-
-        raise FileNotFoundError(
-            f"No se encontró el archivo '{LABELS_PATH}'."
-        )
-
-    labels = []
+        return "Belen"
 
     with open(
         LABELS_PATH,
@@ -404,230 +266,52 @@ def load_labels():
         encoding="utf-8"
     ) as file:
 
-        for line in file:
+        line = file.readline().strip()
 
-            line = line.strip()
+    if not line:
+        return "Belen"
 
-            if not line:
-                continue
+    parts = line.split(maxsplit=1)
 
-            parts = line.split(
-                maxsplit=1
-            )
+    if len(parts) == 2 and parts[0].isdigit():
+        return parts[1]
 
-            # Formato:
-            # 0 Belen
-            # 1 Perro
-            if (
-                len(parts) == 2
-                and parts[0].isdigit()
-            ):
-
-                labels.append(
-                    parts[1]
-                )
-
-            else:
-
-                # Formato:
-                # Belen
-                labels.append(line)
-
-    return labels
+    return line
 
 
-# ============================================================
-# PREPARAR IMAGEN
-# ============================================================
-
-def prepare_image(image):
-
-    # Convertir a RGB
-    image = image.convert("RGB")
-
-    # Ajustar a 224x224
-    image = ImageOps.fit(
-        image,
-        IMAGE_SIZE,
-        Image.Resampling.LANCZOS
-    )
-
-    # Convertir a numpy
-    image_array = np.asarray(image)
-
-    # Normalización usada por Teachable Machine
-    normalized_image = (
-        image_array.astype(
-            np.float32
-        ) / 127.0
-    ) - 1.0
-
-    # Crear tensor
-    data = np.ndarray(
-        shape=(1, 224, 224, 3),
-        dtype=np.float32
-    )
-
-    data[0] = normalized_image
-
-    return data
-
-
-# ============================================================
-# PREDICCIÓN
-# ============================================================
-
-def get_prediction(
-    image,
-    model,
-    labels
-):
-
-    data = prepare_image(image)
-
-    prediction = model.predict(
-        data,
-        verbose=0
-    )
-
-    probabilities = prediction[0]
-
-    number_of_classes = len(
-        probabilities
-    )
-
-    # Si hay más clases en el modelo
-    # que nombres en labels.txt
-    if len(labels) < number_of_classes:
-
-        labels = labels + [
-            f"Clase {i}"
-            for i in range(
-                len(labels),
-                number_of_classes
-            )
-        ]
-
-    # Si hay más etiquetas que clases
-    labels = labels[
-        :number_of_classes
-    ]
-
-    # Clase con mayor probabilidad
-    best_index = int(
-        np.argmax(probabilities)
-    )
-
-    best_label = labels[
-        best_index
-    ]
-
-    confidence = float(
-        probabilities[
-            best_index
-        ]
-    )
-
-    # Crear tabla
-    results = pd.DataFrame(
-        {
-            "Clase": labels,
-            "Probabilidad": probabilities
-        }
-    )
-
-    results["Porcentaje"] = (
-        results["Probabilidad"] * 100
-    ).round(2)
-
-    results = results.sort_values(
-        by="Probabilidad",
-        ascending=False
-    ).reset_index(
-        drop=True
-    )
-
-    return (
-        best_label,
-        confidence,
-        results
-    )
-
-
-# ============================================================
-# CARGAR MODELO Y ETIQUETAS
-# ============================================================
-
-try:
-
-    model = load_ai_model()
-
-    labels = load_labels()
-
-except Exception as error:
-
-    st.error(
-        "❌ No fue posible cargar el modelo."
-    )
-
-    st.markdown(
-        """
-        <div class="card">
-
-            <div class="card-title">
-                ⚠️ Error del modelo
-            </div>
-
-            <div class="card-subtitle">
-                Revisa el detalle técnico que aparece
-                debajo.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.code(
-        str(error)
-    )
-
-    st.info(
-        "Verifica que keras_model.h5 y labels.txt "
-        "estén en la misma carpeta que app.py."
-    )
-
-    st.stop()
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
+def classify_uploaded_image(model, uploaded_file):
     """
-    <div class="top-header">
+    Guarda temporalmente la imagen capturada por Streamlit
+    y utiliza classify_image() de TeachableMachine.
+    """
 
-        <div class="ai-icon">
-            🤖
-        </div>
+    image = Image.open(uploaded_file).convert("RGB")
 
-        <div class="title-area">
+    # Archivo temporal para que teachable-machine pueda
+    # trabajar con la imagen mediante su API oficial.
+    with tempfile.NamedTemporaryFile(
+        suffix=".jpg",
+        delete=False
+    ) as temp_file:
 
-            <h1>
-                Belen AI
-            </h1>
+        temp_path = temp_file.name
 
-            <p>
-                Reconocimiento inteligente de imágenes
-            </p>
+        image.save(
+            temp_path,
+            format="JPEG",
+            quality=95
+        )
 
-        </div>
+    try:
 
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        result = model.classify_image(temp_path)
+
+    finally:
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    return image, result
 
 
 # ============================================================
@@ -637,118 +321,166 @@ st.markdown(
 with st.sidebar:
 
     st.markdown(
-        """
-        <div class="sidebar-card">
-
-            <div class="sidebar-title">
-                🤖 Asistente IA
-            </div>
-
-            <div class="sidebar-text">
-                Esta aplicación utiliza un modelo de
-                inteligencia artificial entrenado con
-                Teachable Machine para reconocer imágenes.
-            </div>
-
-        </div>
-        """,
+        '<div class="sidebar-title">🤖 Belen AI</div>',
         unsafe_allow_html=True
     )
 
     st.markdown(
         """
-        <div class="sidebar-card">
-
-            <div class="sidebar-title">
-                📷 ¿Cómo funciona?
-            </div>
-
-            <div class="sidebar-text">
-
-                1. Permite el acceso a la cámara.
-                <br><br>
-
-                2. Toma una fotografía.
-                <br><br>
-
-                3. La IA analiza la imagen.
-                <br><br>
-
-                4. Se muestra la clase detectada
-                y su nivel de confianza.
-
-            </div>
-
-        </div>
+        <p class="sidebar-text">
+        Sistema de reconocimiento de imágenes
+        entrenado con Teachable Machine.
+        </p>
         """,
         unsafe_allow_html=True
     )
+
+    st.divider()
+
+    st.markdown("### 🧠 Modelo")
 
     st.markdown(
-        f"""
-        <div class="sidebar-card">
-
-            <div class="sidebar-title">
-                🧠 Modelo
-            </div>
-
-            <div class="sidebar-text">
-
-                Entrada: 224 × 224 px
-                <br>
-
-                Clases disponibles: {len(labels)}
-                <br>
-
-                Modelo: Teachable Machine
-
-            </div>
-
+        """
+        <div class="card">
+            <b>Clasificador de imágenes</b>
+            <br><br>
+            Captura una fotografía y el modelo
+            analizará automáticamente la imagen.
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.caption(
-        f"Python {platform.python_version()}"
-    )
+    st.markdown("### 📁 Archivos")
+
+    if os.path.exists(MODEL_PATH):
+        st.success("✓ keras_model.h5")
+    else:
+        st.error("✗ Falta keras_model.h5")
+
+    if os.path.exists(LABELS_PATH):
+        st.success("✓ labels.txt")
+    else:
+        st.error("✗ Falta labels.txt")
 
 
 # ============================================================
-# PRESENTACIÓN
+# CABECERA
 # ============================================================
 
 st.markdown(
+    '<div class="main-title">Reconocimiento de Imágenes</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
     """
-    <div class="welcome-card">
-
-        <div class="status">
-
-            <span class="status-dot"></span>
-
-            IA lista para analizar
-
-        </div>
-
-        <div class="welcome-title">
-
-            Hola 👋
-
-        </div>
-
-        <div class="welcome-text">
-
-            Toma una fotografía y deja que el modelo
-            de inteligencia artificial analice su contenido.
-            El resultado mostrará la categoría detectada
-            y la probabilidad estimada.
-
-        </div>
-
+    <div class="subtitle">
+        Captura una imagen y deja que Belen AI la analice.
     </div>
     """,
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# CARGAR MODELO
+# ============================================================
+
+try:
+
+    model = load_model()
+
+except Exception as error:
+
+    st.error("❌ No se pudo cargar el modelo.")
+
+    st.markdown(
+        """
+        <div class="card">
+            <b>Información del error</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.code(
+        str(error),
+        language="text"
+    )
+
+    st.stop()
+
+
+# ============================================================
+# INFORMACIÓN
+# ============================================================
+
+label = get_label()
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    st.markdown(
+        """
+        <div class="metric-card">
+
+            <div class="metric-number">
+                224×224
+            </div>
+
+            <div class="metric-text">
+                Resolución de entrada
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col2:
+
+    st.markdown(
+        f"""
+        <div class="metric-card">
+
+            <div class="metric-number">
+                1
+            </div>
+
+            <div class="metric-text">
+                Clase: {label}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col3:
+
+    st.markdown(
+        """
+        <div class="metric-card">
+
+            <div class="metric-number">
+                AI
+            </div>
+
+            <div class="metric-text">
+                Clasificación automática
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+st.write("")
 
 
 # ============================================================
@@ -756,116 +488,134 @@ st.markdown(
 # ============================================================
 
 st.markdown(
+    '<div class="card">',
+    unsafe_allow_html=True
+)
+
+st.markdown("### 📷 Captura una imagen")
+
+st.markdown(
     """
-    <div class="card">
-
-        <div class="card-title">
-            📸 Captura una imagen
-        </div>
-
-        <div class="card-subtitle">
-            Coloca el objeto frente a la cámara
-            y toma una fotografía.
-        </div>
-
-    </div>
+    <p style="
+        color:#81788f;
+        margin-bottom:15px;
+    ">
+        Toma una fotografía utilizando la cámara
+        de tu dispositivo.
+    </p>
     """,
     unsafe_allow_html=True
 )
 
-img_file_buffer = st.camera_input(
+image_file = st.camera_input(
     "Toma una fotografía"
+)
+
+st.markdown(
+    '</div>',
+    unsafe_allow_html=True
 )
 
 
 # ============================================================
-# PROCESAR FOTOGRAFÍA
+# PREDICCIÓN
 # ============================================================
 
-if img_file_buffer is not None:
-
-    image = Image.open(
-        img_file_buffer
-    )
-
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True
-    )
-
-    col1, col2 = st.columns(
-        [1, 1],
-        gap="large"
-    )
-
-
-    # ========================================================
-    # IMAGEN
-    # ========================================================
-
-    with col1:
-
-        st.markdown(
-            """
-            <div class="card">
-
-                <div class="card-title">
-                    🖼️ Imagen capturada
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.image(
-            image,
-            use_container_width=True
-        )
-
-
-    # ========================================================
-    # PREDICCIÓN
-    # ========================================================
+if image_file is not None:
 
     try:
 
-        (
-            best_label,
-            confidence,
-            results
-        ) = get_prediction(
-            image,
+        image, result = classify_uploaded_image(
             model,
-            labels
+            image_file
         )
 
-        confidence_percentage = (
-            confidence * 100
+        # --------------------------------------------
+        # DATOS DEL MODELO
+        # --------------------------------------------
+
+        class_index = int(
+            result["class_index"]
         )
 
-        with col2:
+        confidence = float(
+            result["class_confidence"]
+        )
+
+        predictions = np.asarray(
+            result["predictions"],
+            dtype=float
+        ).flatten()
+
+        # La etiqueta del archivo labels.txt es
+        # la que mostramos al usuario.
+        predicted_label = label
+
+        # --------------------------------------------
+        # COLUMNAS
+        # --------------------------------------------
+
+        left, right = st.columns(
+            [1, 1],
+            gap="large"
+        )
+
+
+        # ============================================
+        # IMAGEN
+        # ============================================
+
+        with left:
+
+            st.markdown(
+                '<div class="card">',
+                unsafe_allow_html=True
+            )
+
+            st.markdown(
+                "### 🖼️ Imagen capturada"
+            )
+
+            st.image(
+                image,
+                use_container_width=True
+            )
+
+            st.markdown(
+                '</div>',
+                unsafe_allow_html=True
+            )
+
+
+        # ============================================
+        # RESULTADO
+        # ============================================
+
+        with right:
+
+            st.markdown(
+                '<div class="card">',
+                unsafe_allow_html=True
+            )
+
+            st.markdown(
+                "### ✨ Resultado"
+            )
 
             st.markdown(
                 f"""
                 <div class="result-card">
 
                     <div class="result-label">
-                        Resultado de la IA
+                        RESULTADO DETECTADO
                     </div>
 
                     <div class="result-name">
-                        {best_label}
+                        {predicted_label}
                     </div>
 
-                    <div class="result-confidence">
-
-                        Confianza:
-
-                        <strong>
-                            {confidence_percentage:.2f}%
-                        </strong>
-
+                    <div class="confidence">
+                        {confidence * 100:.2f}% de confianza
                     </div>
 
                 </div>
@@ -878,31 +628,113 @@ if img_file_buffer is not None:
                 unsafe_allow_html=True
             )
 
-
-            # ----------------------------------------------
-            # NIVEL DE CONFIANZA
-            # ----------------------------------------------
+            # ========================================
+            # ESTADO
+            # ========================================
 
             if confidence >= 0.80:
 
                 st.success(
-                    "✅ La IA tiene una alta confianza "
+                    "✓ El modelo tiene alta confianza "
                     "en esta clasificación."
                 )
 
             elif confidence >= 0.50:
 
                 st.warning(
-                    "⚠️ La IA encontró una coincidencia "
-                    "moderada. Puedes intentar otra foto."
+                    "⚠️ El modelo tiene confianza "
+                    "moderada en esta clasificación."
                 )
 
             else:
 
                 st.info(
-                    "ℹ️ La confianza es baja. "
-                    "Prueba con una imagen más clara."
+                    "ℹ️ La confianza del modelo es baja. "
+                    "Prueba con otra fotografía."
                 )
+
+            st.markdown(
+                '</div>',
+                unsafe_allow_html=True
+            )
+
+
+        # ====================================================
+        # PROBABILIDADES
+        # ====================================================
+
+        st.markdown(
+            '<div class="card">',
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            "### 📊 Probabilidad del modelo"
+        )
+
+        # Tu modelo tiene una sola salida.
+        # La mostramos como la probabilidad de Belen.
+
+        probability_df = pd.DataFrame({
+            "Clase": [predicted_label],
+            "Probabilidad": [
+                confidence * 100
+            ]
+        })
+
+        probability_df["Probabilidad"] = (
+            probability_df["Probabilidad"]
+            .round(2)
+        )
+
+        st.dataframe(
+            probability_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.progress(
+            min(max(confidence, 0.0), 1.0)
+        )
+
+        st.markdown(
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+
+        # ====================================================
+        # INFORMACIÓN TÉCNICA
+        # ====================================================
+
+        with st.expander(
+            "🔎 Ver información técnica"
+        ):
+
+            st.write(
+                "**Clase detectada:**",
+                predicted_label
+            )
+
+            st.write(
+                "**Índice de clase:**",
+                class_index
+            )
+
+            st.write(
+                "**Confianza:**",
+                f"{confidence:.6f}"
+            )
+
+            st.write(
+                "**Entrada del modelo:**",
+                "224 × 224 × 3"
+            )
+
+            st.write(
+                "**Número de salidas:**",
+                len(predictions)
+            )
 
 
     except Exception as error:
@@ -912,118 +744,9 @@ if img_file_buffer is not None:
         )
 
         st.code(
-            str(error)
+            str(error),
+            language="text"
         )
-
-        st.stop()
-
-
-    # ========================================================
-    # PROBABILIDADES
-    # ========================================================
-
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        """
-        <div class="card">
-
-            <div class="card-title">
-                📊 Probabilidades
-            </div>
-
-            <div class="card-subtitle">
-                Distribución de la predicción del modelo.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-    # ========================================================
-    # TABLA
-    # ========================================================
-
-    table = results[
-        [
-            "Clase",
-            "Porcentaje"
-        ]
-    ].copy()
-
-    table["Porcentaje"] = (
-        table["Porcentaje"].astype(str)
-        + "%"
-    )
-
-    st.dataframe(
-        table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    # ========================================================
-    # GRÁFICO
-    # ========================================================
-
-    chart_data = results[
-        [
-            "Clase",
-            "Probabilidad"
-        ]
-    ].copy()
-
-    chart_data = chart_data.set_index(
-        "Clase"
-    )
-
-    st.bar_chart(
-        chart_data,
-        use_container_width=True
-    )
-
-
-# ============================================================
-# ESTADO INICIAL
-# ============================================================
-
-else:
-
-    st.markdown(
-        """
-        <div class="card"
-             style="text-align:center;">
-
-            <div style="
-                font-size:50px;
-                margin-bottom:10px;
-            ">
-                📷
-            </div>
-
-            <div class="card-title">
-
-                Esperando una fotografía
-
-            </div>
-
-            <div class="card-subtitle">
-
-                Utiliza la cámara de arriba
-                para comenzar el reconocimiento.
-
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
 # ============================================================
@@ -1033,10 +756,7 @@ else:
 st.markdown(
     """
     <div class="footer">
-
-        Belen AI · Clasificación de imágenes
-        con Inteligencia Artificial
-
+        Belen AI · Clasificación de imágenes con Inteligencia Artificial
     </div>
     """,
     unsafe_allow_html=True
