@@ -3,13 +3,12 @@ import tempfile
 
 import streamlit as st
 from PIL import Image
-
 from teachable_machine import TeachableMachine
 
 
-# ---------------------------------------
+# ==========================================
 # CONFIGURACIÓN
-# ---------------------------------------
+# ==========================================
 
 st.set_page_config(
     page_title="Belen AI",
@@ -21,91 +20,60 @@ MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
 
 
-# ---------------------------------------
-# ESTILO SIMPLE
-# ---------------------------------------
-
-st.markdown("""
-<style>
-
-.stApp {
-    background-color: #f8f6ff;
-}
-
-h1 {
-    color: #4f3b78;
-}
-
-.resultado {
-    background: white;
-    border-radius: 20px;
-    padding: 30px;
-    text-align: center;
-    margin-top: 20px;
-    border: 1px solid #ddd4f5;
-}
-
-.nombre {
-    font-size: 36px;
-    font-weight: bold;
-    color: #6d4cc2;
-}
-
-.probabilidad {
-    font-size: 22px;
-    color: #555;
-    margin-top: 10px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-
-# ---------------------------------------
-# TÍTULO
-# ---------------------------------------
-
-st.title("🤖 Belen AI")
-
-st.write(
-    "Toma una foto y el modelo analizará si corresponde a Belen."
-)
-
-
-# ---------------------------------------
+# ==========================================
 # CARGAR MODELO
-# ---------------------------------------
+# ==========================================
 
 @st.cache_resource
 def cargar_modelo():
 
     if not os.path.exists(MODEL_PATH):
-        st.error("No se encontró keras_model.h5")
+        st.error("❌ No se encontró el archivo keras_model.h5")
         st.stop()
 
-    return TeachableMachine(
+    if not os.path.exists(LABELS_PATH):
+        st.error("❌ No se encontró el archivo labels.txt")
+        st.stop()
+
+    modelo = TeachableMachine(
         model_path=MODEL_PATH,
         labels_file_path=LABELS_PATH,
         model_type="h5"
     )
 
+    return modelo
+
 
 model = cargar_modelo()
 
 
-# ---------------------------------------
+# ==========================================
+# INTERFAZ
+# ==========================================
+
+st.title("🤖 Belen AI")
+
+st.write(
+    "Toma una foto y el modelo analizará la imagen."
+)
+
+
+# ==========================================
 # CÁMARA
-# ---------------------------------------
+# ==========================================
 
-foto = st.camera_input("📷 Toma una foto")
+foto = st.camera_input(
+    "📷 Toma una foto"
+)
 
 
-# ---------------------------------------
-# PREDICCIÓN
-# ---------------------------------------
+# ==========================================
+# ANALIZAR FOTO
+# ==========================================
 
 if foto is not None:
 
+    # Abrir imagen
     imagen = Image.open(foto).convert("RGB")
 
     st.image(
@@ -129,43 +97,64 @@ if foto is not None:
 
     try:
 
+        # ======================================
+        # PREDICCIÓN
+        # ======================================
+
         resultado = model.classify_image(
             ruta_temporal
         )
 
+        # Nombre que entrega el modelo
         nombre = resultado["class_name"]
+
+        # ======================================
+        # LIMPIAR NOMBRE
+        # "0 Belen" → "Belen"
+        # ======================================
+
+        partes = nombre.split(" ", 1)
+
+        if len(partes) == 2 and partes[0].isdigit():
+            nombre = partes[1]
+
+        # ======================================
+        # PROBABILIDAD
+        # ======================================
+
         confianza = float(
             resultado["class_confidence"]
         )
 
-        # -----------------------------------
-        # RESULTADO
-        # -----------------------------------
+        # ======================================
+        # MOSTRAR RESULTADO
+        # ======================================
 
-        st.markdown(
-            f"""
-            <div class="resultado">
+        st.subheader("✨ Resultado")
 
-                <div class="nombre">
-                    {nombre}
-                </div>
-
-                <div class="probabilidad">
-                    Probabilidad: {confianza * 100:.2f}%
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.success(
+            f"**{nombre}**"
         )
 
-    except Exception as e:
+        st.write(
+            f"Probabilidad: **{confianza * 100:.2f}%**"
+        )
+
+    except Exception as error:
 
         st.error(
-            f"Error al analizar la imagen: {e}"
+            "❌ Ocurrió un error al analizar la imagen."
+        )
+
+        st.write(
+            str(error)
         )
 
     finally:
 
+        # Eliminar archivo temporal
         if os.path.exists(ruta_temporal):
-            os.remove(ruta_temporal)
+
+            os.remove(
+                ruta_temporal
+            )
