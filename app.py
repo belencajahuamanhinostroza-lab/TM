@@ -4,6 +4,8 @@ import platform
 import numpy as np
 import pandas as pd
 import streamlit as st
+import tensorflow as tf
+
 from PIL import Image, ImageOps
 from tensorflow.keras.models import load_model
 
@@ -146,7 +148,8 @@ st.markdown(
         padding: 30px;
         margin-bottom: 22px;
         border: 1px solid rgba(139, 92, 246, 0.12);
-        box-shadow: 0 15px 45px rgba(70, 45, 110, 0.08);
+        box-shadow:
+            0 15px 45px rgba(70, 45, 110, 0.08);
     }
 
     .welcome-title {
@@ -176,7 +179,8 @@ st.markdown(
         border-radius: 28px;
         padding: 30px 20px;
         border: 1px solid rgba(139, 92, 246, 0.12);
-        box-shadow: 0 15px 45px rgba(70, 45, 110, 0.09);
+        box-shadow:
+            0 15px 45px rgba(70, 45, 110, 0.09);
     }
 
     .result-label {
@@ -326,43 +330,68 @@ st.markdown(
 
 
 # ============================================================
-# FUNCIONES
+# CAPA COMPATIBLE CON TEACHABLE MACHINE
+# ============================================================
+
+class CompatibleDepthwiseConv2D(
+    tf.keras.layers.DepthwiseConv2D
+):
+    """
+    Permite cargar modelos antiguos de Teachable Machine
+    que guardan el parámetro 'groups' dentro de
+    DepthwiseConv2D.
+    """
+
+    @classmethod
+    def from_config(cls, config):
+
+        # Teachable Machine puede guardar:
+        #
+        # "groups": 1
+        #
+        # Keras moderno puede rechazar este argumento
+        # al reconstruir la capa.
+
+        config.pop("groups", None)
+
+        return super().from_config(config)
+
+
+# ============================================================
+# CARGAR MODELO
 # ============================================================
 
 @st.cache_resource
 def load_ai_model():
-    """
-    Carga el modelo de Teachable Machine.
-    compile=False evita problemas innecesarios al cargar
-    modelos entrenados para clasificación.
-    """
 
     if not os.path.exists(MODEL_PATH):
+
         raise FileNotFoundError(
-            f"No se encontró el archivo '{MODEL_PATH}'."
+            f"No se encontró el archivo '{MODEL_PATH}'. "
+            f"Debe estar en la misma carpeta que app.py."
         )
 
-    return load_model(
+    model = load_model(
         MODEL_PATH,
-        compile=False
+        compile=False,
+        custom_objects={
+            "DepthwiseConv2D":
+                CompatibleDepthwiseConv2D
+        }
     )
 
+    return model
+
+
+# ============================================================
+# CARGAR ETIQUETAS
+# ============================================================
 
 @st.cache_data
 def load_labels():
-    """
-    Lee las etiquetas desde labels.txt.
-
-    Acepta formatos como:
-        0 Belen
-        1 Perro
-
-    o simplemente:
-        Belen
-        Perro
-    """
 
     if not os.path.exists(LABELS_PATH):
+
         raise FileNotFoundError(
             f"No se encontró el archivo '{LABELS_PATH}'."
         )
@@ -376,42 +405,64 @@ def load_labels():
     ) as file:
 
         for line in file:
+
             line = line.strip()
 
             if not line:
                 continue
 
-            parts = line.split(maxsplit=1)
+            parts = line.split(
+                maxsplit=1
+            )
 
-            if len(parts) == 2 and parts[0].isdigit():
-                labels.append(parts[1])
+            # Formato:
+            # 0 Belen
+            # 1 Perro
+            if (
+                len(parts) == 2
+                and parts[0].isdigit()
+            ):
+
+                labels.append(
+                    parts[1]
+                )
+
             else:
+
+                # Formato:
+                # Belen
                 labels.append(line)
 
     return labels
 
 
-def prepare_image(image):
-    """
-    Prepara la imagen exactamente con el formato
-    utilizado habitualmente por Teachable Machine:
-    224x224 y normalización entre -1 y 1.
-    """
+# ============================================================
+# PREPARAR IMAGEN
+# ============================================================
 
+def prepare_image(image):
+
+    # Convertir a RGB
     image = image.convert("RGB")
 
+    # Ajustar a 224x224
     image = ImageOps.fit(
         image,
         IMAGE_SIZE,
         Image.Resampling.LANCZOS
     )
 
+    # Convertir a numpy
     image_array = np.asarray(image)
 
+    # Normalización usada por Teachable Machine
     normalized_image = (
-        image_array.astype(np.float32) / 127.0
+        image_array.astype(
+            np.float32
+        ) / 127.0
     ) - 1.0
 
+    # Crear tensor
     data = np.ndarray(
         shape=(1, 224, 224, 3),
         dtype=np.float32
@@ -422,11 +473,15 @@ def prepare_image(image):
     return data
 
 
-def get_prediction(image, model, labels):
-    """
-    Realiza la predicción y devuelve:
-    nombre de clase, confianza y todas las probabilidades.
-    """
+# ============================================================
+# PREDICCIÓN
+# ============================================================
+
+def get_prediction(
+    image,
+    model,
+    labels
+):
 
     data = prepare_image(image)
 
@@ -437,11 +492,14 @@ def get_prediction(image, model, labels):
 
     probabilities = prediction[0]
 
-    # En caso de que haya más clases en el modelo
-    # que etiquetas en labels.txt.
-    number_of_classes = len(probabilities)
+    number_of_classes = len(
+        probabilities
+    )
 
+    # Si hay más clases en el modelo
+    # que nombres en labels.txt
     if len(labels) < number_of_classes:
+
         labels = labels + [
             f"Clase {i}"
             for i in range(
@@ -450,19 +508,27 @@ def get_prediction(image, model, labels):
             )
         ]
 
-    # En caso de que haya más etiquetas que clases.
-    labels = labels[:number_of_classes]
+    # Si hay más etiquetas que clases
+    labels = labels[
+        :number_of_classes
+    ]
 
+    # Clase con mayor probabilidad
     best_index = int(
         np.argmax(probabilities)
     )
 
-    best_label = labels[best_index]
+    best_label = labels[
+        best_index
+    ]
 
     confidence = float(
-        probabilities[best_index]
+        probabilities[
+            best_index
+        ]
     )
 
+    # Crear tabla
     results = pd.DataFrame(
         {
             "Clase": labels,
@@ -477,7 +543,9 @@ def get_prediction(image, model, labels):
     results = results.sort_values(
         by="Probabilidad",
         ascending=False
-    ).reset_index(drop=True)
+    ).reset_index(
+        drop=True
+    )
 
     return (
         best_label,
@@ -491,12 +559,33 @@ def get_prediction(image, model, labels):
 # ============================================================
 
 try:
+
     model = load_ai_model()
+
     labels = load_labels()
 
 except Exception as error:
+
     st.error(
-        "No fue posible cargar el modelo."
+        "❌ No fue posible cargar el modelo."
+    )
+
+    st.markdown(
+        """
+        <div class="card">
+
+            <div class="card-title">
+                ⚠️ Error del modelo
+            </div>
+
+            <div class="card-subtitle">
+                Revisa el detalle técnico que aparece
+                debajo.
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     st.code(
@@ -524,8 +613,15 @@ st.markdown(
         </div>
 
         <div class="title-area">
-            <h1>Belen AI</h1>
-            <p>Reconocimiento inteligente de imágenes</p>
+
+            <h1>
+                Belen AI
+            </h1>
+
+            <p>
+                Reconocimiento inteligente de imágenes
+            </p>
+
         </div>
 
     </div>
@@ -568,11 +664,19 @@ with st.sidebar:
             </div>
 
             <div class="sidebar-text">
-                1. Permite el acceso a la cámara.<br><br>
-                2. Toma una fotografía.<br><br>
-                3. La IA analiza la imagen.<br><br>
-                4. Se muestra la clase detectada y
-                su nivel de confianza.
+
+                1. Permite el acceso a la cámara.
+                <br><br>
+
+                2. Toma una fotografía.
+                <br><br>
+
+                3. La IA analiza la imagen.
+                <br><br>
+
+                4. Se muestra la clase detectada
+                y su nivel de confianza.
+
             </div>
 
         </div>
@@ -589,9 +693,15 @@ with st.sidebar:
             </div>
 
             <div class="sidebar-text">
-                Entrada: 224 × 224 px<br>
-                Clases disponibles: {len(labels)}<br>
+
+                Entrada: 224 × 224 px
+                <br>
+
+                Clases disponibles: {len(labels)}
+                <br>
+
                 Modelo: Teachable Machine
+
             </div>
 
         </div>
@@ -613,19 +723,26 @@ st.markdown(
     <div class="welcome-card">
 
         <div class="status">
+
             <span class="status-dot"></span>
+
             IA lista para analizar
+
         </div>
 
         <div class="welcome-title">
+
             Hola 👋
+
         </div>
 
         <div class="welcome-text">
+
             Toma una fotografía y deja que el modelo
             de inteligencia artificial analice su contenido.
             El resultado mostrará la categoría detectada
             y la probabilidad estimada.
+
         </div>
 
     </div>
@@ -647,7 +764,8 @@ st.markdown(
         </div>
 
         <div class="card-subtitle">
-            Coloca el objeto frente a la cámara y toma una foto.
+            Coloca el objeto frente a la cámara
+            y toma una fotografía.
         </div>
 
     </div>
@@ -661,7 +779,7 @@ img_file_buffer = st.camera_input(
 
 
 # ============================================================
-# PROCESAMIENTO
+# PROCESAR FOTOGRAFÍA
 # ============================================================
 
 if img_file_buffer is not None:
@@ -680,9 +798,10 @@ if img_file_buffer is not None:
         gap="large"
     )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # IMAGEN
-    # --------------------------------------------------------
+    # ========================================================
 
     with col1:
 
@@ -704,9 +823,10 @@ if img_file_buffer is not None:
             use_container_width=True
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # PREDICCIÓN
-    # --------------------------------------------------------
+    # ========================================================
 
     try:
 
@@ -739,10 +859,13 @@ if img_file_buffer is not None:
                     </div>
 
                     <div class="result-confidence">
+
                         Confianza:
+
                         <strong>
                             {confidence_percentage:.2f}%
                         </strong>
+
                     </div>
 
                 </div>
@@ -755,32 +878,37 @@ if img_file_buffer is not None:
                 unsafe_allow_html=True
             )
 
-            # Mensaje según confianza
+
+            # ----------------------------------------------
+            # NIVEL DE CONFIANZA
+            # ----------------------------------------------
+
             if confidence >= 0.80:
 
                 st.success(
-                    "La IA tiene una alta confianza "
+                    "✅ La IA tiene una alta confianza "
                     "en esta clasificación."
                 )
 
             elif confidence >= 0.50:
 
                 st.warning(
-                    "La IA encontró una coincidencia "
+                    "⚠️ La IA encontró una coincidencia "
                     "moderada. Puedes intentar otra foto."
                 )
 
             else:
 
                 st.info(
-                    "La confianza es baja. "
+                    "ℹ️ La confianza es baja. "
                     "Prueba con una imagen más clara."
                 )
+
 
     except Exception as error:
 
         st.error(
-            "Ocurrió un error durante la predicción."
+            "❌ Ocurrió un error durante la predicción."
         )
 
         st.code(
@@ -816,9 +944,16 @@ if img_file_buffer is not None:
         unsafe_allow_html=True
     )
 
-    # Tabla
+
+    # ========================================================
+    # TABLA
+    # ========================================================
+
     table = results[
-        ["Clase", "Porcentaje"]
+        [
+            "Clase",
+            "Porcentaje"
+        ]
     ].copy()
 
     table["Porcentaje"] = (
@@ -832,9 +967,16 @@ if img_file_buffer is not None:
         hide_index=True
     )
 
-    # Gráfico
+
+    # ========================================================
+    # GRÁFICO
+    # ========================================================
+
     chart_data = results[
-        ["Clase", "Probabilidad"]
+        [
+            "Clase",
+            "Probabilidad"
+        ]
     ].copy()
 
     chart_data = chart_data.set_index(
@@ -847,15 +989,16 @@ if img_file_buffer is not None:
     )
 
 
-else:
+# ============================================================
+# ESTADO INICIAL
+# ============================================================
 
-    # ========================================================
-    # ESTADO INICIAL
-    # ========================================================
+else:
 
     st.markdown(
         """
-        <div class="card" style="text-align:center;">
+        <div class="card"
+             style="text-align:center;">
 
             <div style="
                 font-size:50px;
@@ -865,12 +1008,16 @@ else:
             </div>
 
             <div class="card-title">
+
                 Esperando una fotografía
+
             </div>
 
             <div class="card-subtitle">
-                Utiliza la cámara de arriba para comenzar
-                el reconocimiento.
+
+                Utiliza la cámara de arriba
+                para comenzar el reconocimiento.
+
             </div>
 
         </div>
@@ -886,8 +1033,10 @@ else:
 st.markdown(
     """
     <div class="footer">
-        Belen AI · Clasificación de imágenes con
-        Inteligencia Artificial
+
+        Belen AI · Clasificación de imágenes
+        con Inteligencia Artificial
+
     </div>
     """,
     unsafe_allow_html=True
