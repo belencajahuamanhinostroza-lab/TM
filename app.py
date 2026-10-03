@@ -3,7 +3,6 @@ import tempfile
 
 import streamlit as st
 from PIL import Image
-
 from teachable_machine import TeachableMachine
 
 
@@ -83,6 +82,10 @@ def cargar_modelo():
         st.error("No se encontró keras_model.h5")
         st.stop()
 
+    if not os.path.exists(LABELS_PATH):
+        st.error("No se encontró labels.txt")
+        st.stop()
+
     return TeachableMachine(
         model_path=MODEL_PATH,
         labels_file_path=LABELS_PATH,
@@ -129,35 +132,52 @@ if foto is not None:
 
     try:
 
+        # ---------------------------------------
+        # CLASIFICAR IMAGEN
+        # ---------------------------------------
+
         resultado = model.classify_image(
             ruta_temporal
         )
 
         nombre = resultado["class_name"]
+
+        # Quitar "0 " de "0 Belen"
+        partes = nombre.split(" ", 1)
+
+        if len(partes) == 2 and partes[0].isdigit():
+            nombre = partes[1]
+
         confianza = float(
             resultado["class_confidence"]
         )
 
-# ---------------------------------------
-# RESULTADO
-# ---------------------------------------
+        # ---------------------------------------
+        # RESULTADO
+        # ---------------------------------------
 
-nombre = resultado["class_name"]
+        st.subheader("✨ Resultado")
 
-# Quitar "0 " de "0 Belen"
-partes = nombre.split(" ", 1)
+        st.success(
+            f"**{nombre}**"
+        )
 
-if len(partes) == 2 and partes[0].isdigit():
-    nombre = partes[1]
+        st.write(
+            f"Probabilidad: **{confianza * 100:.2f}%**"
+        )
 
-confianza = float(resultado["class_confidence"])
+    except Exception as error:
 
-st.subheader("✨ Resultado")
+        st.error(
+            "❌ Ocurrió un error al analizar la imagen."
+        )
 
-st.success(
-    f"**{nombre}**"
-)
+        st.write(
+            str(error)
+        )
 
-st.write(
-    f"Probabilidad: **{confianza * 100:.2f}%**"
-)
+    finally:
+
+        # Eliminar archivo temporal
+        if os.path.exists(ruta_temporal):
+            os.remove(ruta_temporal)
